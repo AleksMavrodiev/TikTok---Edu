@@ -1,8 +1,10 @@
-import { TOPICS, LESSONS, PUZZLES } from './content.js';
+import { TOPICS, LESSONS, PUZZLES, VIDEOS } from './content.js';
 import { buildFeed, mulberry32, shuffle } from './feed.js';
 import * as P from './puzzles.js';
 import { load, save } from './store.js';
 import { parseSlides } from './text.js';
+import { dailyPicks, dailyState, msUntilMidnight, DAILY_BONUS } from './daily.js';
+import { putVideo, deleteVideo, videoUrl } from './media.js';
 
 // ---------- helpers ----------
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -25,7 +27,8 @@ function h(tag, attrs = {}, ...children) {
 const state = load();
 const persist = () => save(state);
 const topicById = (id) => TOPICS.find((t) => t.id === id) || TOPICS[0];
-const allLessons = () => [...state.custom, ...LESSONS];
+const allLessons = () => [...state.custom, ...VIDEOS, ...LESSONS];
+const isVideo = (it) => Boolean(it.video || it.videoKey);
 const allItems = () => [...allLessons(), ...PUZZLES];
 const findItem = (id) => allItems().find((it) => it.id === id);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -43,14 +46,27 @@ function toast(msg) {
 function award(kind, id) {
   const list = kind === 'lesson' ? 'completed' : 'solved';
   if (state[list].includes(id)) return false;
-  const before = P.levelFor(state.xp).level;
   state[list].push(id);
-  state.xp += P.XP[kind];
+  addXp(P.XP[kind]);
+  return true;
+}
+
+function addXp(n, msg = `+${n} XP`) {
+  const before = P.levelFor(state.xp).level;
+  state.xp += n;
   state.streak = P.nextStreak(state.streak, today());
   persist();
   const after = P.levelFor(state.xp).level;
-  toast(after > before ? `🎉 Level ${after}!` : `+${P.XP[kind]} XP`);
-  return true;
+  toast(after > before ? `🎉 Level ${after}!` : msg);
+}
+
+// Single tap vs double tap (double tap = like, as on TikTok).
+function onTaps(el, single, double) {
+  let timer = null;
+  el.addEventListener('click', (e) => {
+    if (timer) { clearTimeout(timer); timer = null; double(e); return; }
+    timer = setTimeout(() => { timer = null; single(e); }, 260);
+  });
 }
 
 // ---------- narration ----------
@@ -164,14 +180,15 @@ class LessonPlayer {
 }
 
 // ---------- shared card parts ----------
-function actionBar(item) {
+function actionBar(item, ...extra) {
   const btn = (cls, icon, label, onclick, pressed) =>
     h('button', { class: `act ${cls}`, 'aria-pressed': pressed == null ? null : String(pressed), [`data-${cls}`]: item.id, onclick }, h('b', {}, icon), label);
   return h('div', { class: 'actions' },
     btn('like', '❤', 'Like', () => toggleLike(item.id), state.liked.includes(item.id)),
     btn('save', '🔖', 'Save', () => toggleSave(item.id), state.saved.includes(item.id)),
     btn('share', '↗', 'Share', () => share(item)),
-    item.slides ? btn('info', 'ℹ', 'More', () => openMore(item)) : null,
+    item.type ? null : btn('info', 'ℹ', 'More', () => openMore(item)),
+    ...extra,
   );
 }
 
@@ -240,25 +257,167 @@ function renderLesson(lesson) {
   card._player = player;
 
   // Tap left/right third = prev/next slide, middle = pause. Double tap = like.
-  let tapTimer = null;
-  $('.stage', card).addEventListener('click', (e) => {
+  onTaps($('.stage', card), (e) => {
     if (player.done) return;
-    if (tapTimer) {
-      clearTimeout(tapTimer);
-      tapTimer = null;
-      toggleLike(lesson.id, true);
-      heartBurst(card, e.clientX, e.clientY);
-      return;
-    }
-    tapTimer = setTimeout(() => {
-      tapTimer = null;
-      const r = card.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width;
-      if (x < 0.3) { player.prev(); player.play(); }
-      else if (x > 0.7) { player.next(); if (!player.done) player.play(); }
-      else player.toggle();
-    }, 260);
+    const r = card.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    if (x < 0.3) { player.prev(); player.play(); }
+    else if (x > 0.7) { player.next(); if (!player.done) player.play(); }
+    else player.toggle();
+  }, (e) => {
+    if (player.done) return;
+    toggleLike(lesson.id, true);
+    heartBurst(card, e.clientX, e.clientY);
   });
+  return card;
+}
+
+// ---------- video card ----------
+let soundOn = false;
+
+class VideoPlayer {
+  constructor(card, item, video) {
+    this.card = card;
+    this.item = item;
+    this.v = video;
+    this.want = false;
+    this.bar = $('.vbar i', card);
+    video.addEventListener('timeupdate', () => {
+      if (video.duration) this.bar.style.width = `${(video.currentTime / video.duration) * 100}%`;
+    });
+    // Loop like TikTok, but count the first full watch as a completed lesson.
+    video.addEventListener('ended', () => {
+      award('lesson', item.id);
+      video.currentTime = 0;
+      if (this.want) this.play();
+    });
+  }
+  get playing() { return this.want; }
+  play() {
+    this.want = true;
+    this.card.classList.remove('user-paused');
+    $('.paused-badge', this.card)?.remove();
+    this.v.muted = !soundOn || this.item.silent;
+    // Autoplay with sound can be blocked until the user interacts; fall back to muted.
+    this.v.play()?.catch(() => {
+      if (!this.v.muted) { this.v.muted = true; this.v.play()?.catch(() => {}); }
+    });
+  }
+  pause(byUser = false) {
+    if (!this.want && !byUser) return;
+    this.want = false;
+    this.v.pause();
+    if (byUser && !$('.paused-badge', this.card)) {
+      this.card.classList.add('user-paused');
+      this.card.append(h('div', { class: 'paused-badge', 'aria-hidden': 'true' }, '▶️'));
+    }
+  }
+  toggle() { this.want ? this.pause(true) : this.play(); }
+  seek(d) { if (this.v.duration) this.v.currentTime = Math.max(0, Math.min(this.v.duration - 0.1, this.v.currentTime + d)); }
+  next() { this.seek(5); }
+  prev() { this.seek(-5); }
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  $$('video').forEach((v) => { v.muted = !soundOn || v.dataset.silent === '1'; });
+  $$('.act.sound').forEach((b) => {
+    b.setAttribute('aria-pressed', String(soundOn));
+    b.firstChild.textContent = soundOn ? '🔊' : '🔇';
+  });
+}
+
+function renderVideo(item) {
+  const t = topicById(item.topic);
+  const video = h('video', { class: 'vid', playsinline: true, 'webkit-playsinline': true, preload: 'metadata', poster: item.poster, 'data-silent': item.silent ? '1' : '0' });
+  video.muted = true;
+  const sound = item.silent ? null : h('button', { class: 'act sound', 'aria-pressed': String(soundOn), onclick: toggleSound }, h('b', {}, soundOn ? '🔊' : '🔇'), 'Sound');
+  const card = h('article', { class: 'card video', 'data-id': item.id, '--c1': t.colors[0], '--c2': t.colors[1], 'aria-label': item.title },
+    video,
+    h('div', { class: 'tapzone' }),
+    h('div', {
+      class: 'vbar', role: 'slider', 'aria-label': 'Seek',
+      onclick: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        if (video.duration) video.currentTime = ((e.clientX - r.left) / r.width) * video.duration;
+      },
+    }, h('i')),
+    h('div', { class: 'meta' },
+      h('span', { class: 'tag' }, `${t.icon} ${t.name}`),
+      h('h2', {}, item.title),
+      h('p', { class: 'by' }, `@${item.creator} · ${item.silent ? 'video · captions' : 'video'}`)),
+    actionBar(item, sound),
+  );
+  const showError = () => {
+    if ($('.verror', card)) return;
+    card.append(h('div', { class: 'verror' }, h('div', { style: { fontSize: '48px' } }, '📼'),
+      h('p', {}, item.videoKey ? 'This video is no longer stored on this device.' : 'This video couldn\u2019t be loaded. Check your connection.')));
+  };
+  video.addEventListener('error', showError);
+  if (item.video) video.src = item.video;
+  else videoUrl(item.videoKey).then((u) => { video.src = u; }).catch(showError);
+
+  const player = new VideoPlayer(card, item, video);
+  card._player = player;
+  onTaps($('.tapzone', card), () => player.toggle(), (e) => {
+    toggleLike(item.id, true);
+    heartBurst(card, e.clientX, e.clientY);
+  });
+  return card;
+}
+
+const renderItem = (it) => (it.type ? renderPuzzle(it) : isVideo(it) ? renderVideo(it) : renderLesson(it));
+
+// ---------- daily challenge ----------
+const todaysPicks = () => dailyPicks(today(), PUZZLES);
+const todaysDaily = () => dailyState(state.daily, today());
+const dailyDone = () => todaysDaily().claimed;
+
+function markDaily(id) {
+  const day = today();
+  const picks = todaysPicks().map((p) => p.id);
+  if (!picks.includes(id)) return;
+  const d = (state.daily = dailyState(state.daily, day));
+  if (!d.done.includes(id)) d.done.push(id);
+  if (!d.claimed && picks.every((x) => d.done.includes(x))) {
+    d.claimed = true;
+    state.dailyStreak = P.nextStreak(state.dailyStreak, day);
+    addXp(DAILY_BONUS, `🏆 Daily challenge done! +${DAILY_BONUS} XP`);
+  } else persist();
+  $$('.daily-card').forEach((c) => c._refresh());
+}
+
+function countdown() {
+  const m = Math.ceil(msUntilMidnight() / 60000);
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+// kind: 'invite' (inside For You), 'intro' / 'outro' (around the daily puzzles)
+function dailyCard(kind) {
+  const body = h('div', { class: 'pz' });
+  const card = h('article', { class: 'card daily-card', 'data-id': `daily-${kind}`, '--c1': '#78350f', '--c2': '#111827', '--angle': '170deg', 'aria-label': 'Daily challenge' }, body);
+  card._refresh = () => {
+    const d = todaysDaily();
+    const picks = todaysPicks();
+    const streak = P.currentStreak(state.dailyStreak, today());
+    const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    const title = d.claimed ? 'Daily challenge complete! 🏆'
+      : kind === 'outro' ? 'Almost there…'
+        : `${picks.length} puzzles, one +${DAILY_BONUS} XP bonus`;
+    body.replaceChildren(...[
+      h('div', { class: 'pz-kind' }, `📅 Daily challenge · ${date}`),
+      h('h2', {}, title),
+      h('div', { class: 'daily-steps' }, picks.map((p, i) => h('div', { class: `step${d.done.includes(p.id) ? ' done' : ''}` },
+        h('span', {}, d.done.includes(p.id) ? '✓' : i + 1), PUZZLE_KIND[p.type]))),
+      h('p', { class: 'hint' }, `🔥 Daily streak: ${streak} day${streak === 1 ? '' : 's'} · Same puzzles for everyone today.`),
+      d.claimed ? h('p', { class: 'status good' }, `Next challenge in ${countdown()}`) : null,
+      kind === 'invite' && !d.claimed ? h('button', { class: 'btn primary', style: { alignSelf: 'flex-start' }, onclick: () => resetFeed('daily') }, 'Start today\u2019s challenge') : null,
+      kind === 'intro' && !d.claimed ? h('p', { class: 'status' }, 'Swipe up to start ↓') : null,
+      kind === 'outro' && !d.claimed ? h('p', { class: 'hint' }, 'Scroll back up to finish the puzzles you skipped.') : null,
+      kind === 'outro' ? h('button', { class: 'btn', style: { alignSelf: 'flex-start' }, onclick: () => resetFeed('all') }, 'Back to For You') : null,
+    ].filter(Boolean));
+  };
+  card._refresh();
   return card;
 }
 
@@ -276,6 +435,7 @@ function renderPuzzle(p) {
 
   const solved = () => {
     const fresh = award('puzzle', p.id);
+    markDaily(p.id);
     body.append(h('div', { class: 'solved-badge' }, fresh ? `✓ Solved · +${P.XP.puzzle} XP` : '✓ Solved'),
       h('button', { class: 'btn', style: { alignSelf: 'flex-start' }, onclick: draw }, '↻ Play again'));
   };
@@ -491,12 +651,21 @@ function resumeActive() {
 function setActive(card) {
   if (active && active !== card) active._player?.pause();
   active = card;
+  card._refresh?.();
   if (currentView === 'feed' && $('#sheet').hidden) resumeActive();
   const cards = $$('.card', feed);
   if (cards.indexOf(card) >= cards.length - 3) appendRound();
 }
 
 function appendRound(firstId) {
+  if (currentTopic === 'daily') {
+    if (round++) return;
+    for (const card of [dailyCard('intro'), ...todaysPicks().map(renderPuzzle), dailyCard('outro')]) {
+      feed.append(card);
+      observer.observe(card);
+    }
+    return;
+  }
   let items = buildFeed({
     lessons: allLessons(), puzzles: PUZZLES, topic: currentTopic,
     liked: state.liked, seen: [...state.completed, ...state.solved],
@@ -513,9 +682,10 @@ function appendRound(firstId) {
   // Avoid showing the same item twice in a row across rounds.
   const lastId = $$('.card', feed).at(-1)?.dataset.id;
   if (items.length > 1 && items[0].id === lastId) items.push(items.shift());
+  const cards = items.map(renderItem);
+  if (!round && currentTopic === 'all' && !firstId && !dailyDone()) cards.splice(Math.min(2, cards.length), 0, dailyCard('invite'));
   round++;
-  for (const it of items) {
-    const card = it.slides ? renderLesson(it) : renderPuzzle(it);
+  for (const card of cards) {
     feed.append(card);
     observer.observe(card);
   }
@@ -537,7 +707,7 @@ function scrollFeed(dir) {
 }
 
 function renderChips() {
-  const chips = [['all', 'For You'], ['puzzles', '🧩 Puzzles'], ...TOPICS.map((t) => [t.id, `${t.icon} ${t.name}`])];
+  const chips = [['all', 'For You'], ['daily', '📅 Daily'], ['puzzles', '🧩 Puzzles'], ...TOPICS.map((t) => [t.id, `${t.icon} ${t.name}`])];
   $('#chips').replaceChildren(...chips.map(([id, label]) =>
     h('button', { class: `chip${id === currentTopic ? ' active' : ''}`, onclick: () => resetFeed(id) }, label)));
   $('#chips .active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -557,8 +727,9 @@ function listItem(it, extra) {
   const t = topicById(it.topic);
   return h('div', { class: 'item', '--c1': t.colors[0], '--c2': t.colors[1] },
     h('button', { class: 'item', style: { padding: 0, background: 'none', flex: '1' }, onclick: () => openInFeed(it.id) },
-      h('span', { class: 'ico' }, it.slides ? it.slides[0][0] : '🧩'),
-      h('span', { class: 'grow' }, h('div', { class: 't' }, it.title), h('div', { class: 's' }, it.slides ? `${t.name} · lesson` : `${t.name} · ${PUZZLE_KIND[it.type]}`))),
+      h('span', { class: 'ico' }, it.type ? '🧩' : isVideo(it) ? '🎬' : it.slides[0][0]),
+      h('span', { class: 'grow' }, h('div', { class: 't' }, it.title),
+        h('div', { class: 's' }, `${t.name} · ${it.type ? PUZZLE_KIND[it.type] : isVideo(it) ? 'video' : 'lesson'}`))),
     extra);
 }
 function openInFeed(id) {
@@ -586,6 +757,7 @@ const RENDER_VIEW = {
   profile() {
     const lv = P.levelFor(state.xp);
     const streak = P.currentStreak(state.streak, today());
+    const dailyStreak = P.currentStreak(state.dailyStreak, today());
     $('#profileStats').replaceChildren(
       h('div', { class: 'level' },
         h('div', { class: 'badge' }, lv.level),
@@ -595,6 +767,7 @@ const RENDER_VIEW = {
           h('div', { class: 'muted', style: { fontSize: '12px', marginTop: '4px' } }, `${lv.need - lv.into} XP to level ${lv.level + 1}`))),
       h('div', { class: 'stats' },
         h('div', { class: 'stat' }, h('b', {}, `🔥 ${streak}`), h('span', {}, 'day streak')),
+        h('div', { class: 'stat' }, h('b', {}, `📅 ${dailyStreak}`), h('span', {}, 'daily challenges')),
         h('div', { class: 'stat' }, h('b', {}, state.completed.length), h('span', {}, 'lessons')),
         h('div', { class: 'stat' }, h('b', {}, state.solved.length), h('span', {}, 'puzzles'))),
     );
@@ -615,25 +788,52 @@ function renderSearch() {
 }
 
 // ---------- create ----------
-$('#createForm').addEventListener('submit', (e) => {
+const createForm = $('#createForm');
+function syncFormat() {
+  const format = new FormData(createForm).get('format');
+  $$('[data-format]', createForm).forEach((el) => { el.hidden = el.dataset.format !== format; });
+  createForm.elements.slides.required = format === 'slides';
+}
+createForm.addEventListener('change', (e) => { if (e.target.name === 'format') syncFormat(); });
+
+createForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
   const topic = f.get('topic');
-  const slides = parseSlides(String(f.get('slides')), topicById(topic).icon);
-  if (!slides.length) return toast('Add at least one slide');
   const lesson = {
     id: `u-${Date.now().toString(36)}`, topic, creator: 'you',
-    title: String(f.get('title')).trim(), slides,
+    title: String(f.get('title')).trim(),
     more: String(f.get('more') || '').trim(), source: String(f.get('source') || '').trim(),
   };
+  if (f.get('format') === 'video') {
+    const file = f.get('file');
+    const url = String(f.get('url') || '').trim();
+    if (file && file.size) {
+      if (!file.type.startsWith('video/')) return toast('That file isn\u2019t a video');
+      if (file.size > 300e6) return toast('Video too large (max 300 MB)');
+      const submit = $('button[type=submit]', e.target);
+      submit.disabled = true;
+      try { await putVideo(lesson.id, file); } catch { return toast('Couldn\u2019t save the video on this device'); } finally { submit.disabled = false; }
+      lesson.videoKey = lesson.id;
+    } else if (/^https?:\/\//i.test(url)) {
+      if (/youtube\.com|youtu\.be|tiktok\.com|instagram\.com|vimeo\.com/i.test(url)) return toast('Paste a direct video file link (.mp4 / .webm)');
+      lesson.video = url;
+    } else return toast('Choose a video file or paste a link');
+  } else {
+    lesson.slides = parseSlides(String(f.get('slides')), topicById(topic).icon);
+    if (!lesson.slides.length) return toast('Add at least one slide');
+  }
   state.custom = [lesson, ...state.custom];
   persist();
   e.target.reset();
+  syncFormat();
   toast('Published to your feed');
   openInFeed(lesson.id);
 });
 
 function deleteCustom(id) {
+  const item = state.custom.find((l) => l.id === id);
+  if (item?.videoKey) deleteVideo(item.videoKey).catch(() => {});
   state.custom = state.custom.filter((l) => l.id !== id);
   state.saved = state.saved.filter((x) => x !== id);
   persist();
@@ -652,7 +852,7 @@ $('#narrationBtn').addEventListener('click', () => {
 $('#narrationToggle').addEventListener('change', (e) => setNarration(e.target.checked));
 $('#resetBtn').addEventListener('click', () => {
   if (!confirm('Reset XP, streak, likes and saved items? Your created lessons are kept.')) return;
-  Object.assign(state, { xp: 0, liked: [], saved: [], completed: [], solved: [], streak: null });
+  Object.assign(state, { xp: 0, liked: [], saved: [], completed: [], solved: [], streak: null, daily: null, dailyStreak: null });
   persist();
   RENDER_VIEW.profile();
   resetFeed('all');
@@ -668,7 +868,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === ' ' && activePlayer()) { e.preventDefault(); activePlayer().toggle(); }
   else if (e.key === 'ArrowRight' && activePlayer()) activePlayer().next();
   else if (e.key === 'ArrowLeft' && activePlayer()) activePlayer().prev();
-  else if (e.key === 'l' && active) toggleLike(active.dataset.id);
+  else if (e.key === 'l' && active && !active.classList.contains('daily-card')) toggleLike(active.dataset.id);
+  else if (e.key === 'm') toggleSound();
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -676,6 +877,35 @@ document.addEventListener('visibilitychange', () => {
   else if (currentView === 'feed' && $('#sheet').hidden) resumeActive();
 });
 
+// ---------- install as an app ----------
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $('#installBtn').hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('#installBtn').hidden = true;
+  toast('Curio installed 🎉');
+});
+$('#installBtn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null;
+  $('#installBtn').hidden = true;
+});
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+$('#iosInstall').hidden = !(isIOS && !standalone);
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 setNarration(state.narration);
+syncFormat();
 const deepLink = decodeURIComponent(location.hash.slice(1));
-resetFeed('all', findItem(deepLink) ? deepLink : undefined);
+const startTopic = new URLSearchParams(location.search).get('topic');
+const validTopic = ['all', 'daily', 'puzzles', ...TOPICS.map((t) => t.id)].includes(startTopic) ? startTopic : 'all';
+resetFeed(findItem(deepLink) ? 'all' : validTopic, findItem(deepLink) ? deepLink : undefined);

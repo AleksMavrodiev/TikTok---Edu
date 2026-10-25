@@ -5,6 +5,7 @@ const KEY = 'curio:v1';
 const DEFAULTS = {
   xp: 0, liked: [], saved: [], completed: [], solved: [],
   streak: null, narration: false, custom: [],
+  daily: null, dailyStreak: null,
 };
 
 export function load() {

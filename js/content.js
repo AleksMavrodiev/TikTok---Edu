@@ -367,3 +367,36 @@ export const PUZZLES = [
     title: 'Slide the tiles into order 1–8',
   },
 ];
+
+// Short silent explainer videos (captions are burned in). These are rendered
+// from tools/clips.js by `npm run clips`; any MP4/WebM URL works here too.
+export const VIDEOS = [
+  {
+    id: 'v-moon-phases', topic: 'space', creator: 'curio',
+    title: 'Why the Moon has phases',
+    silent: true, video: 'media/clips/moon-phases.mp4', poster: 'media/clips/moon-phases.jpg',
+    more: 'The Moon takes about 27.3 days to orbit Earth, but about 29.5 days to go from one new moon to the next. Earth is also moving around the Sun, so the Moon has to travel a little further to line up again.',
+    source: 'NASA — Moon phases',
+  },
+  {
+    id: 'v-pythagoras', topic: 'math', creator: 'curio',
+    title: 'Pythagoras without algebra',
+    silent: true, video: 'media/clips/pythagoras.mp4', poster: 'media/clips/pythagoras.jpg',
+    more: 'Both pictures are the same big square with sides a + b, containing the same four triangles. So the uncovered area must be equal: c² in the first picture, a² + b² in the second. Versions of this proof go back over 2,000 years.',
+    source: 'Classic rearrangement proof (see Wikipedia — Pythagorean theorem)',
+  },
+  {
+    id: 'v-pendulum', topic: 'science', creator: 'curio',
+    title: 'Why pendulum clocks work',
+    silent: true, video: 'media/clips/pendulum.mp4', poster: 'media/clips/pendulum.jpg',
+    more: 'For small swings, a pendulum’s period is about T = 2π√(L/g), which doesn’t depend on how wide it swings. Galileo noticed this around 1602, and Christiaan Huygens built the first pendulum clock in 1656. The simulation in this clip solves the real equation of motion, so the wider swing drifts very slightly behind.',
+    source: 'Britannica — Pendulum; Huygens',
+  },
+  {
+    id: 'v-writing', topic: 'history', creator: 'curio',
+    title: '5,000 years of writing',
+    silent: true, video: 'media/clips/history-of-writing.mp4', poster: 'media/clips/history-of-writing.jpg',
+    more: 'The timeline is drawn to scale, which is why everything from the printing press onwards is squeezed into the bottom. Cuneiform in Mesopotamia and hieroglyphs in Egypt both appear around 3200 BC. The Phoenician alphabet is the ancestor of the Greek, Latin and Cyrillic alphabets.',
+    source: 'British Museum; Britannica — Alphabet; Paper',
+  },
+];

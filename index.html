@@ -6,7 +6,13 @@
   <meta name="theme-color" content="#0b0b12" />
   <meta name="description" content="Curio — a swipeable feed of bite-sized lessons, history stories and puzzle minigames." />
   <title>Curio — learn something in 30 seconds</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Curio" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -29,13 +35,22 @@
 
     <section class="panel view" data-view="create" hidden>
       <h1>Create a lesson</h1>
-      <p class="muted">Make your own 30-second lesson. It's saved on this device and appears in your feed.</p>
+      <p class="muted">Make your own short lesson from slides or a video. It's saved on this device and appears in your feed.</p>
       <form id="createForm" class="form">
         <label>Title <input class="input" name="title" required maxlength="80" placeholder="e.g. Why the sky is blue" /></label>
         <label>Topic <select class="input" name="topic" id="createTopic"></select></label>
-        <label>Slides
+        <div class="seg" role="radiogroup" aria-label="Format">
+          <label><input type="radio" name="format" value="slides" checked /> 🎞️ Slides</label>
+          <label><input type="radio" name="format" value="video" /> 🎬 Video</label>
+        </div>
+        <label data-format="slides">Slides
           <textarea class="input" name="slides" rows="6" required placeholder="One slide per line. Start a line with an emoji to use it as the picture.&#10;☀️ Sunlight contains all colours.&#10;🌬️ Air scatters blue light the most.&#10;🔵 So the sky looks blue!"></textarea>
         </label>
+        <div data-format="video" class="form" hidden>
+          <label>Video file <input class="input" type="file" name="file" accept="video/*" /></label>
+          <label>…or a link to a video file <input class="input" type="url" name="url" placeholder="https://example.com/clip.mp4" /></label>
+          <p class="muted small">Uploaded videos stay on this device. Vertical (9:16) clips under a minute work best.</p>
+        </div>
         <label>Learn more (optional) <textarea class="input" name="more" rows="3" maxlength="600"></textarea></label>
         <label>Source (optional) <input class="input" name="source" maxlength="120" placeholder="Where did you learn this?" /></label>
         <button class="btn primary" type="submit">Publish to my feed</button>
@@ -52,6 +67,8 @@
       <h2>Settings</h2>
       <div class="list">
         <label class="row"><span>Read lessons aloud</span><input type="checkbox" id="narrationToggle" /></label>
+        <button class="btn primary" id="installBtn" type="button" hidden>📲 Install Curio as an app</button>
+        <p id="iosInstall" class="muted small" hidden>📲 To install on iPhone or iPad: tap the Share button, then “Add to Home Screen”.</p>
         <button class="btn danger" id="resetBtn" type="button">Reset progress</button>
       </div>
     </section>

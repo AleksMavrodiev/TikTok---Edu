@@ -1,59 +1,87 @@
 # Curio 🧠
 
-A TikTok-style vertical feed for learning, not doomscrolling. You swipe through short animated lessons on history, science, space, math, nature and tech, and puzzle minigames are mixed in as you go.
+A TikTok-style vertical feed for learning, not doomscrolling. You swipe through short lessons and explainer videos on history, science, space, math, nature and tech, with puzzle minigames mixed in, plus a daily challenge. It installs on your phone as an app and works offline.
 
 ## Features
 
 - **Swipeable feed.** Full-screen cards snap into place, like TikTok or Reels.
-- **Micro-lessons.** Animated slide "videos" with story-style progress bars. Tap the left or right side to move between slides, tap the middle to pause, and double-tap to like. Each lesson has a **Learn more** sheet that cites its source.
-- **Narration.** Turn on 🔊 to have lessons read aloud with the browser's built-in text-to-speech.
-- **Puzzle minigames** mixed into the feed:
+- **Explainer videos.** Short silent clips with captions burned in that autoplay, loop and can be scrubbed.
+  - Moon phases
+  - Pythagoras without algebra
+  - Pendulum timing
+  - 5,000 years of writing
+- **Micro-lessons.** Animated slides with story-style progress bars. Tap the left or right side to move between slides and the middle to pause. Turn on 🔊 narration to have them read aloud with the browser's text-to-speech.
+- **Puzzle minigames:**
   - 🧠 Quick quiz
-  - ⏳ Timeline: put historical events in order
+  - ⏳ Timeline
   - 🔤 Word scramble
   - 🔢 Number patterns
   - 🃏 Memory match
   - 🧩 Sliding puzzle
-- **Progress.** You earn XP for finishing lessons and solving puzzles, plus levels and a daily streak 🔥.
-- **Personalised ranking, all local.** Topics you like show up more often, and things you've already finished move down the feed.
+- **📅 Daily challenge.** Three puzzles of different types each day, the same for everyone, picked from the date so no server is needed. Finishing all three earns a +50 XP bonus and extends your daily streak.
+- **Progress.** XP, levels, an activity streak 🔥 and a daily-challenge streak.
+- **Like / Save / Share.** Double-tap to like. Share links open straight to a card (e.g. `#v-moon-phases`).
 - **Explore.** Browse by topic or search everything.
-- **Create.** Write your own lesson, one slide per line, with an optional emoji at the start of each line.
-- **Like / Save / Share.** Share links deep-link straight to a card (`#l-cleopatra`).
-- Keyboard controls on desktop: `↑`/`↓` or `j`/`k` to move through the feed, `space` to pause, `←`/`→` to change slides, `l` to like.
+- **Create.** Publish your own lesson as **slides** or a **video**: upload a file from your device (stored in IndexedDB) or paste a link to an `.mp4`/`.webm` file.
+- **Installable app (PWA).** Use "Install" from the You tab, or Share → Add to Home Screen on iPhone. It works fully offline, including the bundled videos. The home-screen shortcuts jump straight to the Daily challenge or Puzzles.
+- **Keyboard controls on desktop:**
+  - `↑`/`↓` or `j`/`k`: next / previous card
+  - `space`: pause
+  - `←`/`→`: change slide, or seek 5 s in a video
+  - `l`: like
+  - `m`: sound on/off for videos
 
-There's no account, no backend and no tracking. All progress is stored in `localStorage` on your device.
+There's no account, no backend and no tracking. All progress stays on your device.
 
 ## Run it
 
-It's plain HTML, CSS and ES modules with no build step and no dependencies.
+It's plain HTML, CSS and ES modules with no build step and no runtime dependencies.
 
 ```bash
-npm start          # serves on http://localhost:5173 (python3 http.server)
-# or any static server, e.g. npx serve .
+npm start          # http://localhost:5173 (small static server with HTTP Range support for video)
 ```
 
-ES modules don't load over `file://`, so you have to serve the folder rather than open `index.html` directly.
+Any static host works, e.g. GitHub Pages or Netlify. Browsers only allow installing the app and offline mode over **HTTPS** or on `localhost`.
 
 ## Test
 
 ```bash
-npm test           # node:test — feed ranking, puzzle rules, streaks, content checks
+npm test           # unit tests: feed ranking, puzzle rules, streaks, daily picks, offline cache list, manifest
+npm run smoke      # end-to-end in headless Chromium (needs Playwright + Chromium): videos, daily challenge,
+                   # every puzzle type solved through the UI, video upload, offline mode
 ```
+
+## Videos
+
+The bundled clips in `media/clips/` are generated from code, so they're original and free to use. `tools/clips.js` draws each frame on a canvas, and `npm run clips` renders the frames and encodes them to H.264 MP4 with ffmpeg, along with a poster image for each clip. To add a clip:
+
+1. Add a clip to `tools/clips.js`.
+2. Run `npm run clips`.
+3. Add an entry to `VIDEOS` in `js/content.js`.
+4. List the new files in `sw.js` and bump its `VERSION`. `npm test` fails if you forget to list them.
+
+Any other MP4/WebM URL can go in `VIDEOS` too. Vertical 9:16 video looks best.
 
 ## Project layout
 
 ```
-index.html          app shell (feed, explore, create, profile)
-css/styles.css      styles (mobile-first, max 480px column on desktop)
-js/app.js           UI: lesson player, puzzle cards, views
-js/content.js       lessons + puzzles (add your own here)
-js/feed.js          feed building / ranking
-js/puzzles.js       pure puzzle, XP and streak logic
-js/text.js          parses "Create" text into slides
-js/store.js         localStorage persistence
-test/               unit tests
+index.html            app shell (feed, explore, create, profile)
+manifest.webmanifest  install metadata; sw.js = offline cache
+css/styles.css        styles (mobile-first, 480px column on desktop, safe-area aware)
+js/app.js             UI: lesson + video players, puzzle cards, daily challenge, views
+js/content.js         lessons, videos and puzzles
+js/feed.js            feed building / ranking
+js/daily.js           daily challenge picks
+js/puzzles.js         pure puzzle, XP and streak logic
+js/media.js           IndexedDB storage for uploaded videos
+js/text.js            parses "Create" text into slides
+js/store.js           localStorage persistence
+media/clips/          rendered explainer videos + posters
+icons/                app icons (npm run icons)
+tools/                clip/icon renderers, dev server, smoke test
+test/                 unit tests
 ```
 
 ## Adding content
 
-Add entries to `LESSONS` or `PUZZLES` in `js/content.js`. A lesson is a list of `[emoji, text]` slides plus optional `more` and `source` fields. A puzzle has a `type` (`quiz`, `timeline`, `scramble`, `sequence`, `memory` or `slider`) and the fields its type uses; the existing entries show what each type needs. `npm test` checks that IDs are unique, topics are valid and every answer is among its options.
+Add entries to `LESSONS`, `VIDEOS` or `PUZZLES` in `js/content.js`. Puzzle types are `quiz`, `timeline`, `scramble`, `sequence`, `memory` and `slider`; the existing entries show the fields each type needs. After changing any cached file, bump `VERSION` in `sw.js` so installed apps update.
