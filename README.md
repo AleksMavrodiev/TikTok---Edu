@@ -46,6 +46,20 @@ npm start          # http://localhost:5173 (small static server with HTTP Range 
 
 Any static host works, e.g. GitHub Pages or Netlify. Browsers only allow installing the app and offline mode over **HTTPS** or on `localhost`.
 
+## Run it on your phone
+
+**Quickest: same Wi-Fi.** Run `npm start` on your computer and open the "On your phone" address it prints (e.g. `http://192.168.1.20:5173`) in your phone's browser. Everything works except installing and offline mode, which need HTTPS.
+
+**Install it as an app (HTTPS hosting).** Put the folder on any static host:
+
+- **GitHub Pages** (needs a public repo or a paid plan for private repos): Settings → Pages → *Deploy from a branch* → pick the branch and `/ (root)` → Save. A minute later the app is at `https://<user>.github.io/<repo>/`.
+- **Netlify Drop** (works with a private repo): download the repo as a ZIP, unzip it, and drag the folder onto <https://app.netlify.com/drop>. Sign in to keep the site permanently.
+
+Then open the link on your phone and install it:
+
+- **iPhone (Safari):** Share → *Add to Home Screen*.
+- **Android (Chrome):** ⋮ menu → *Install app*, or use the 📲 button in Curio's **You** tab.
+
 ## Test
 
 ```bash

@@ -3,6 +3,7 @@
 import http from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const port = Number(process.argv[2] || process.env.PORT || 5173);
@@ -33,4 +34,12 @@ http.createServer((req, res) => {
     res.writeHead(200, { ...headers, 'Content-Length': stat.size });
     createReadStream(file).pipe(res);
   }
-}).listen(port, () => console.log(`Curio running at http://localhost:${port}`));
+}).listen(port, () => {
+  console.log(`Curio running at http://localhost:${port}`);
+  // Addresses other devices on the same Wi-Fi (e.g. your phone) can open.
+  for (const nets of Object.values(os.networkInterfaces())) {
+    for (const n of nets || []) {
+      if (n.family === 'IPv4' && !n.internal) console.log(`On your phone (same Wi-Fi): http://${n.address}:${port}`);
+    }
+  }
+});
