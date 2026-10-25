@@ -1,0 +1,12 @@
+{
+  "name": "curio",
+  "version": "1.0.0",
+  "description": "A TikTok-style feed for bite-sized lessons, history stories and puzzle minigames.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 5173",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}
