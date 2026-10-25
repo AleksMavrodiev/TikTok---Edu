@@ -1,6 +1,6 @@
 // Service worker: makes Curio installable and fully usable offline.
 // Bump VERSION whenever a file in ASSETS changes so clients pick up the update.
-const VERSION = 'curio-v3';
+const VERSION = 'curio-v4';
 
 const ASSETS = [
   './',

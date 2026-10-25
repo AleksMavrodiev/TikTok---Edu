@@ -400,3 +400,97 @@ export const VIDEOS = [
     source: 'British Museum; Britannica — Alphabet; Paper',
   },
 ];
+
+// ---- Open-source videos (Wikimedia Commons) ----
+// Streamed straight from Commons; Special:FilePath redirects to the original file.
+const commons = (file) => ({
+  video: `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file.replace(/ /g, '_'))}`,
+  poster: `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file.replace(/ /g, '_'))}?width=720`,
+  link: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(file.replace(/ /g, '_'))}`,
+});
+
+export const OPEN_VIDEOS = [
+  {
+    id: 'c-apollo11-site', topic: 'space', creator: 'NASA Goddard',
+    title: 'A new look at the Apollo 11 landing site',
+    ...commons('A New Look at the Apollo 11 Landing Site xUcYQ7slmRw.webm'),
+    license: 'Public domain (NASA)',
+    more: 'NASA’s Lunar Reconnaissance Orbiter has photographed the Apollo landing sites from orbit, where the descent stages, equipment and even the astronauts’ foot trails are still visible decades later.',
+    source: 'NASA Goddard via Wikimedia Commons',
+  },
+  {
+    id: 'c-eclipse-2017', topic: 'space', creator: 'NASA Goddard SVS',
+    title: 'The 2017 total solar eclipse, from above',
+    ...commons('2017 Total Solar Eclipse in the U.S.webm'),
+    license: 'Public domain (NASA)', silent: true,
+    more: 'On 21 August 2017 the Moon’s shadow crossed the United States from Oregon to South Carolina. Inside the dark central shadow (the umbra) the Sun was completely covered; in the much larger penumbra people saw a partial eclipse.',
+    source: 'NASA Goddard Scientific Visualization Studio via Wikimedia Commons',
+  },
+  {
+    id: 'c-perseverance', topic: 'space', creator: 'NASA / JPL',
+    title: 'Perseverance: landing on Mars',
+    ...commons('NASA-MarsLanding-PerseveranceRover-18Feb2021-20201221.webm'),
+    license: 'Public domain (NASA)',
+    more: 'NASA’s Perseverance rover landed in Jezero Crater on 18 February 2021. The crater once held a lake, which makes it a good place to search for signs of ancient microbial life.',
+    source: 'NASA/JPL-Caltech via Wikimedia Commons',
+  },
+];
+
+// ---- Educational YouTube videos ----
+// Played with YouTube's privacy-enhanced embed player (youtube-nocookie.com).
+export const YOUTUBE = [
+  {
+    id: 'yt-alexandria', topic: 'history', creator: 'TED-Ed', youtube: 'jvWncVbXfJ0',
+    title: 'What really happened to the Library of Alexandria?',
+    more: 'Founded in the 3rd century BC under the Ptolemies, the Library of Alexandria was one of the great centres of learning of the ancient world. Historians think it declined over centuries rather than vanishing in a single fire. Lesson by Elizabeth Cox.',
+    source: 'TED-Ed on YouTube',
+  },
+  {
+    id: 'yt-inca', topic: 'history', creator: 'TED-Ed', youtube: 'UO5ktwPXsyM',
+    title: 'The rise and fall of the Inca Empire',
+    more: 'At its height the Inca Empire stretched along the Andes and was the largest state in the Americas before Columbus. Lesson by Gordon McEwan.',
+    source: 'TED-Ed on YouTube',
+  },
+  {
+    id: 'yt-great-zimbabwe', topic: 'history', creator: 'TED-Ed', youtube: 'quzjmZ-7s6w',
+    title: 'Who built Great Zimbabwe? And why?',
+    more: 'Great Zimbabwe is a vast stone city built between roughly the 11th and 15th centuries by ancestors of the Shona people. Colonial-era claims that outsiders must have built it were false. Lesson by Breeanna Elliott.',
+    source: 'TED-Ed on YouTube',
+  },
+  {
+    id: 'yt-agri-revolution', topic: 'history', creator: 'CrashCourse', youtube: 'Yocja_N5s1I',
+    title: 'The Agricultural Revolution',
+    more: 'Episode 1 of Crash Course World History, hosted by John Green: how and why people around the world switched from hunting and gathering to farming.',
+    source: 'CrashCourse on YouTube',
+  },
+  {
+    id: 'yt-neural-network', topic: 'tech', creator: '3Blue1Brown', youtube: 'aircAruvnKk',
+    title: 'But what is a neural network?',
+    more: 'Grant Sanderson builds up what the "neurons" and "layers" in a neural network actually are, using handwritten digit recognition as the example.',
+    source: '3Blue1Brown on YouTube',
+  },
+  {
+    id: 'yt-entropy', topic: 'science', creator: 'Veritasium', youtube: 'DxL2HoqLbyA',
+    title: 'The most misunderstood concept in physics',
+    more: 'A deep dive into entropy: why heat flows from hot to cold, why time seems to have a direction, and why the Earth gives off as much energy as it receives from the Sun.',
+    source: 'Veritasium on YouTube',
+  },
+  {
+    id: 'yt-infinity', topic: 'math', creator: 'Numberphile', youtube: 'elvOZm0d4H0',
+    title: 'Infinity is bigger than you think',
+    more: 'Dr James Grime explains Georg Cantor’s discovery that some infinities are bigger than others: there are more real numbers than whole numbers.',
+    source: 'Numberphile on YouTube',
+  },
+  {
+    id: 'yt-immune-system', topic: 'nature', creator: 'Kurzgesagt – In a Nutshell', youtube: 'zQGOcOUBi6s',
+    title: 'The immune system explained',
+    more: 'An animated tour of what happens when bacteria get through a cut: the soldiers, scouts and weapons of your immune system.',
+    source: 'Kurzgesagt on YouTube',
+  },
+  {
+    id: 'yt-black-holes', topic: 'space', creator: 'Kurzgesagt – In a Nutshell', youtube: 'e-P5IFTqB98',
+    title: 'Black holes explained — from birth to death',
+    more: 'How a giant star collapses into a black hole, what the event horizon is, and how black holes may slowly evaporate through Hawking radiation.',
+    source: 'Kurzgesagt on YouTube',
+  },
+];

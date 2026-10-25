@@ -23,7 +23,7 @@ test('manifest is installable', () => {
 });
 
 test('bundled videos and posters exist', () => {
-  for (const v of VIDEOS) {
+  for (const v of VIDEOS.filter((x) => !/^https?:/.test(x.video))) {
     assert.ok(existsSync(new URL(v.video, root)), v.video);
     assert.ok(existsSync(new URL(v.poster, root)), v.poster);
   }

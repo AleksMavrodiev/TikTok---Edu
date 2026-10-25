@@ -1,8 +1,8 @@
-import { TOPICS, LESSONS, PUZZLES, VIDEOS } from './content.js';
+import { TOPICS, LESSONS, PUZZLES, VIDEOS, OPEN_VIDEOS, YOUTUBE } from './content.js';
 import { buildFeed, mulberry32, shuffle } from './feed.js';
 import * as P from './puzzles.js';
 import { load, save } from './store.js';
-import { parseSlides } from './text.js';
+import { parseSlides, parseYouTube } from './text.js';
 import { dailyPicks, dailyState, msUntilMidnight, DAILY_BONUS } from './daily.js';
 import { putVideo, deleteVideo, videoUrl } from './media.js';
 
@@ -27,8 +27,9 @@ function h(tag, attrs = {}, ...children) {
 const state = load();
 const persist = () => save(state);
 const topicById = (id) => TOPICS.find((t) => t.id === id) || TOPICS[0];
-const allLessons = () => [...state.custom, ...VIDEOS, ...LESSONS];
+const allLessons = () => [...state.custom, ...VIDEOS, ...OPEN_VIDEOS, ...YOUTUBE, ...LESSONS];
 const isVideo = (it) => Boolean(it.video || it.videoKey);
+const isWatch = (it) => isVideo(it) || Boolean(it.youtube);
 const allItems = () => [...allLessons(), ...PUZZLES];
 const findItem = (id) => allItems().find((it) => it.id === id);
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -228,7 +229,11 @@ function openMore(lesson) {
     h('h3', {}, lesson.title),
     h('p', {}, lesson.more || 'No extra notes for this one.'),
     lesson.source ? h('p', { class: 'muted' }, `Source: ${lesson.source}`) : null,
-    h('button', { class: 'btn', onclick: closeSheet }, 'Close'),
+    lesson.license ? h('p', { class: 'muted' }, `License: ${lesson.license}`) : null,
+    h('div', { class: 'row-btns' },
+      lesson.youtube ? h('a', { class: 'btn', href: `https://www.youtube.com/watch?v=${lesson.youtube}`, target: '_blank', rel: 'noopener' }, '▶ Watch on YouTube') : null,
+      lesson.link ? h('a', { class: 'btn', href: lesson.link, target: '_blank', rel: 'noopener' }, '🌐 View on Wikimedia Commons') : null,
+      h('button', { class: 'btn', onclick: closeSheet }, 'Close')),
   );
 }
 
@@ -325,11 +330,13 @@ function toggleSound() {
     b.setAttribute('aria-pressed', String(soundOn));
     b.firstChild.textContent = soundOn ? '🔊' : '🔇';
   });
+  ytPlayers.forEach((p) => p.command(soundOn ? 'unMute' : 'mute'));
 }
 
 function renderVideo(item) {
   const t = topicById(item.topic);
-  const video = h('video', { class: 'vid', playsinline: true, 'webkit-playsinline': true, preload: 'metadata', poster: item.poster, 'data-silent': item.silent ? '1' : '0' });
+  const remote = /^https?:/.test(item.video || '');
+  const video = h('video', { class: 'vid', playsinline: true, 'webkit-playsinline': true, preload: remote ? 'none' : 'metadata', poster: item.poster, 'data-silent': item.silent ? '1' : '0' });
   video.muted = true;
   const sound = item.silent ? null : h('button', { class: 'act sound', 'aria-pressed': String(soundOn), onclick: toggleSound }, h('b', {}, soundOn ? '🔊' : '🔇'), 'Sound');
   const card = h('article', { class: 'card video', 'data-id': item.id, '--c1': t.colors[0], '--c2': t.colors[1], 'aria-label': item.title },
@@ -345,15 +352,18 @@ function renderVideo(item) {
     h('div', { class: 'meta' },
       h('span', { class: 'tag' }, `${t.icon} ${t.name}`),
       h('h2', {}, item.title),
-      h('p', { class: 'by' }, `@${item.creator} · ${item.silent ? 'video · captions' : 'video'}`)),
+      h('p', { class: 'by' }, `@${item.creator} · ${item.license || (item.silent ? 'video · captions' : 'video')}`)),
     actionBar(item, sound),
   );
   const showError = () => {
     if ($('.verror', card)) return;
     card.append(h('div', { class: 'verror' }, h('div', { style: { fontSize: '48px' } }, '📼'),
-      h('p', {}, item.videoKey ? 'This video is no longer stored on this device.' : 'This video couldn\u2019t be loaded. Check your connection.')));
+      h('p', {}, item.videoKey ? 'This video is no longer stored on this device.' : 'This video couldn\u2019t be loaded. Check your connection.'),
+      item.link ? h('a', { class: 'btn', href: item.link, target: '_blank', rel: 'noopener' }, 'Open the source page') : null));
   };
   video.addEventListener('error', showError);
+  // Show landscape videos whole (letterboxed) rather than cropping them to portrait.
+  video.addEventListener('loadedmetadata', () => card.classList.toggle('landscape', video.videoWidth > video.videoHeight * 1.1));
   if (item.video) video.src = item.video;
   else videoUrl(item.videoKey).then((u) => { video.src = u; }).catch(showError);
 
@@ -366,7 +376,82 @@ function renderVideo(item) {
   return card;
 }
 
-const renderItem = (it) => (it.type ? renderPuzzle(it) : isVideo(it) ? renderVideo(it) : renderLesson(it));
+// ---------- YouTube card ----------
+// Uses the privacy-enhanced embed player; control and "ended" detection go
+// through the player's postMessage API (enablejsapi=1).
+const YT_ORIGIN = 'https://www.youtube-nocookie.com';
+const ytPlayers = new Map(); // iframe window -> player
+
+class YouTubePlayer {
+  constructor(card, item) {
+    this.card = card;
+    this.item = item;
+    this.want = false;
+    this.frame = null;
+    this.slot = $('.yt-slot', card);
+  }
+  get playing() { return this.want; }
+  command(func, args = []) {
+    this.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), YT_ORIGIN);
+  }
+  play() {
+    this.want = true;
+    if (this.frame) return this.command('playVideo');
+    if (!navigator.onLine) {
+      this.slot.replaceChildren(h('div', { class: 'yt-msg' }, '📡 YouTube videos need an internet connection.'));
+      return;
+    }
+    const params = new URLSearchParams({ autoplay: '1', mute: soundOn ? '0' : '1', playsinline: '1', rel: '0', enablejsapi: '1' });
+    if (location.origin.startsWith('http')) params.set('origin', location.origin);
+    this.frame = h('iframe', {
+      src: `${YT_ORIGIN}/embed/${this.item.youtube}?${params}`, title: this.item.title,
+      allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: true,
+      referrerpolicy: 'strict-origin-when-cross-origin',
+    });
+    this.frame.addEventListener('load', () => {
+      this.frame.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: this.item.id, channel: 'widget' }), YT_ORIGIN);
+      if (!this.want) this.command('pauseVideo');
+    });
+    this.slot.replaceChildren(this.frame);
+    ytPlayers.set(this.frame.contentWindow, this);
+  }
+  pause() { this.want = false; this.command('pauseVideo'); }
+  toggle() { this.want ? this.pause() : this.play(); }
+  next() {}
+  prev() {}
+}
+
+window.addEventListener('message', (e) => {
+  if (e.origin !== YT_ORIGIN) return;
+  const player = ytPlayers.get(e.source);
+  if (!player || typeof e.data !== 'string') return;
+  let msg;
+  try { msg = JSON.parse(e.data); } catch { return; }
+  const playerState = msg.event === 'onStateChange' ? msg.info : msg.info?.playerState;
+  if (playerState === 0) award('lesson', player.item.id); // 0 = ended
+});
+
+function renderYouTube(item) {
+  const t = topicById(item.topic);
+  const thumb = `https://i.ytimg.com/vi/${item.youtube}/hqdefault.jpg`;
+  const card = h('article', { class: 'card yt', 'data-id': item.id, '--c1': t.colors[0], '--c2': t.colors[1], 'aria-label': item.title },
+    h('div', { class: 'yt-bg', style: { backgroundImage: `url("${thumb}")` } }),
+    h('div', { class: `yt-frame${item.short ? ' short' : ''}` },
+      h('div', { class: 'yt-slot' },
+        h('img', { src: thumb, alt: '', loading: 'lazy' }),
+        h('button', { class: 'yt-play', 'aria-label': `Play ${item.title}`, onclick: () => player.play() }, '▶'))),
+    h('div', { class: 'meta' },
+      h('span', { class: 'tag' }, `${t.icon} ${t.name}`),
+      h('h2', {}, item.title),
+      h('p', { class: 'by' }, `@${item.creator} · YouTube`)),
+    actionBar(item),
+  );
+  const player = new YouTubePlayer(card, item);
+  card._player = player;
+  return card;
+}
+
+const renderItem = (it) => (it.type ? renderPuzzle(it) : it.youtube ? renderYouTube(it) : isVideo(it) ? renderVideo(it) : renderLesson(it));
 
 // ---------- daily challenge ----------
 const todaysPicks = () => dailyPicks(today(), PUZZLES);
@@ -666,8 +751,11 @@ function appendRound(firstId) {
     }
     return;
   }
+  const videosOnly = currentTopic === 'videos';
   let items = buildFeed({
-    lessons: allLessons(), puzzles: PUZZLES, topic: currentTopic,
+    lessons: videosOnly ? allLessons().filter(isWatch) : allLessons(),
+    puzzles: videosOnly ? [] : PUZZLES,
+    topic: videosOnly ? 'all' : currentTopic,
     liked: state.liked, seen: [...state.completed, ...state.solved],
     rng: mulberry32((Date.now() + round * 7919) >>> 0),
   });
@@ -707,7 +795,7 @@ function scrollFeed(dir) {
 }
 
 function renderChips() {
-  const chips = [['all', 'For You'], ['daily', '📅 Daily'], ['puzzles', '🧩 Puzzles'], ...TOPICS.map((t) => [t.id, `${t.icon} ${t.name}`])];
+  const chips = [['all', 'For You'], ['daily', '📅 Daily'], ['videos', '🎬 Videos'], ['puzzles', '🧩 Puzzles'], ...TOPICS.map((t) => [t.id, `${t.icon} ${t.name}`])];
   $('#chips').replaceChildren(...chips.map(([id, label]) =>
     h('button', { class: `chip${id === currentTopic ? ' active' : ''}`, onclick: () => resetFeed(id) }, label)));
   $('#chips .active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -727,9 +815,9 @@ function listItem(it, extra) {
   const t = topicById(it.topic);
   return h('div', { class: 'item', '--c1': t.colors[0], '--c2': t.colors[1] },
     h('button', { class: 'item', style: { padding: 0, background: 'none', flex: '1' }, onclick: () => openInFeed(it.id) },
-      h('span', { class: 'ico' }, it.type ? '🧩' : isVideo(it) ? '🎬' : it.slides[0][0]),
+      h('span', { class: 'ico' }, it.type ? '🧩' : isWatch(it) ? '🎬' : it.slides[0][0]),
       h('span', { class: 'grow' }, h('div', { class: 't' }, it.title),
-        h('div', { class: 's' }, `${t.name} · ${it.type ? PUZZLE_KIND[it.type] : isVideo(it) ? 'video' : 'lesson'}`))),
+        h('div', { class: 's' }, `${t.name} · ${it.type ? PUZZLE_KIND[it.type] : it.youtube ? 'YouTube' : isVideo(it) ? 'video' : 'lesson'}`))),
     extra);
 }
 function openInFeed(id) {
@@ -815,8 +903,13 @@ createForm.addEventListener('submit', async (e) => {
       submit.disabled = true;
       try { await putVideo(lesson.id, file); } catch { return toast('Couldn\u2019t save the video on this device'); } finally { submit.disabled = false; }
       lesson.videoKey = lesson.id;
+    } else if (parseYouTube(url)) {
+      const yt = parseYouTube(url);
+      lesson.youtube = yt.id;
+      lesson.short = yt.short;
     } else if (/^https?:\/\//i.test(url)) {
-      if (/youtube\.com|youtu\.be|tiktok\.com|instagram\.com|vimeo\.com/i.test(url)) return toast('Paste a direct video file link (.mp4 / .webm)');
+      if (/youtube\.com|youtu\.be/i.test(url)) return toast('That doesn\u2019t look like a YouTube video link');
+      if (/tiktok\.com|instagram\.com|vimeo\.com/i.test(url)) return toast('Paste a YouTube link or a direct video file link (.mp4 / .webm)');
       lesson.video = url;
     } else return toast('Choose a video file or paste a link');
   } else {
@@ -907,5 +1000,5 @@ setNarration(state.narration);
 syncFormat();
 const deepLink = decodeURIComponent(location.hash.slice(1));
 const startTopic = new URLSearchParams(location.search).get('topic');
-const validTopic = ['all', 'daily', 'puzzles', ...TOPICS.map((t) => t.id)].includes(startTopic) ? startTopic : 'all';
+const validTopic = ['all', 'daily', 'videos', 'puzzles', ...TOPICS.map((t) => t.id)].includes(startTopic) ? startTopic : 'all';
 resetFeed(findItem(deepLink) ? 'all' : validTopic, findItem(deepLink) ? deepLink : undefined);

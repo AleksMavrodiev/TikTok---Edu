@@ -162,6 +162,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ---------- video ---------- */
 .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.video.landscape .vid { object-fit: contain; background: transparent; }
 .tapzone { position: absolute; inset: 0; z-index: 2; }
 .vbar { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; z-index: 6; display: flex; align-items: flex-end; cursor: pointer; }
 .vbar::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #ffffff33; }
@@ -183,3 +184,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg label:has(input:checked) { background: var(--panel-2); box-shadow: inset 0 0 0 1px #ffffff22; }
 .small { font-size: 13px; margin: 0; }
+
+/* ---------- YouTube ---------- */
+.yt-bg { position: absolute; inset: -40px; background: center / cover no-repeat; filter: blur(28px) brightness(.45); }
+.yt-frame { position: absolute; left: 0; right: 0; top: 44%; transform: translateY(-50%); aspect-ratio: 16 / 9; background: #000; box-shadow: 0 12px 40px #0008; }
+.yt-frame.short { left: 50%; right: auto; top: calc(80px + var(--safe-top)); bottom: 150px; height: auto; aspect-ratio: 9 / 16; transform: translateX(-50%); max-width: 100%; }
+.yt-slot, .yt-slot iframe, .yt-slot img { width: 100%; height: 100%; border: 0; display: block; object-fit: cover; }
+.yt-slot { position: relative; }
+.yt-play { position: absolute; inset: 0; margin: auto; width: 68px; height: 48px; border: 0; border-radius: 14px; background: #ff0033; color: #fff; font-size: 22px; box-shadow: 0 4px 16px #0007; }
+.yt-msg { display: grid; place-items: center; height: 100%; padding: 16px; text-align: center; color: var(--muted); }
+.row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+a.btn { text-decoration: none; display: inline-block; }

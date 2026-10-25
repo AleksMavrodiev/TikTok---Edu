@@ -147,6 +147,45 @@ try {
   await page.waitForFunction((id) => document.querySelector(`.card[data-id="${id}"] video`)?.currentTime > 0.5, myId, { timeout: 8000 });
   step('uploaded video plays and persists after reload');
 
+  // 4b. YouTube + Wikimedia Commons cards. The hosts are stubbed so this runs
+  // without internet: the stub "player" answers the postMessage protocol the
+  // same way YouTube's embed does (and reports the video as ended).
+  const poster = path.join(root, 'media/clips/moon-phases.jpg');
+  const ytStub = `<!doctype html><body style="margin:0;background:#200;color:#fff;font:16px sans-serif">stub player
+    <script>addEventListener('message', (e) => {
+      const m = JSON.parse(e.data);
+      if (m.event === 'listening') parent.postMessage(JSON.stringify({ event: 'infoDelivery', info: { playerState: 0 } }), '*');
+      if (m.event === 'command') document.body.dataset.last = m.func;
+    });</script>`;
+  await context.route(/i\.ytimg\.com/, (r) => r.fulfill({ path: poster }));
+  await context.route(/youtube-nocookie\.com\/embed\//, (r) => r.fulfill({ contentType: 'text/html', body: ytStub }));
+  await context.route(/commons\.wikimedia\.org\/wiki\/Special:FilePath\//, (r) => (r.request().url().includes('width=')
+    ? r.fulfill({ path: poster })
+    : r.fulfill({ path: path.join(root, 'media/clips/pendulum.mp4'), contentType: 'video/mp4' })));
+  await page.goto(`${base}#yt-inca`);
+  await page.reload();
+  const frame = page.locator('.card[data-id="yt-inca"] iframe').first();
+  await frame.waitFor({ timeout: 5000 });
+  const src = await frame.getAttribute('src');
+  assert.ok(src.startsWith('https://www.youtube-nocookie.com/embed/UO5ktwPXsyM?') && src.includes('enablejsapi=1'), src);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('curio:v1')).completed.includes('yt-inca'), null, { timeout: 5000 });
+  await snap('07-youtube');
+  step('YouTube card embeds the privacy-enhanced player and awards XP when the video ends');
+  await page.goto(`${base}#c-apollo11-site`);
+  await page.reload();
+  await page.waitForFunction(() => {
+    const v = document.querySelector('.card[data-id="c-apollo11-site"] video');
+    return v && v.currentSrc.includes('Special:FilePath') && v.currentTime > 0.5;
+  }, null, { timeout: 8000 });
+  await snap('08-commons');
+  step('Wikimedia Commons video streams and plays');
+  await page.click('.chip:has-text("Videos")');
+  await page.waitForTimeout(300);
+  const kinds = await page.$$eval('.card', (cs) => cs.map((c) => c.className));
+  assert.ok(kinds.length > 10 && kinds.every((k) => /\b(video|yt)\b/.test(k)), kinds.join());
+  step(`Videos feed shows only videos (${kinds.length} cards)`);
+  await context.unrouteAll();
+
   // 5. Offline: service worker serves the app and bundled videos.
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
